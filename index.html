@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title></title>
+  <title>Movies</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -14,18 +14,20 @@
     h1 {
       text-align: center;
     }
+    .filter-container {
+      text-align: center;
+      margin-bottom: 20px;
+    }
     .movies-container {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(12%, 1fr));
+      gap: 20px;
     }
     .movie {
       background-color: white;
       border: 1px solid #ddd;
       border-radius: 5px;
-      margin: 10px;
       padding: 15px;
-      width: 200px;
       text-align: center;
       cursor: pointer;
       transition: box-shadow 0.3s;
@@ -38,7 +40,7 @@
     .movie:hover {
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
-    
+
     .modal {
       display: none;
       position: fixed;
@@ -79,18 +81,76 @@
       border: none;
       border-radius: 5px;
     }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .pagination button {
+      margin: 0 5px;
+      padding: 10px 15px;
+      cursor: pointer;
+    }
+    .cut-text{
+      max-height: 90px;
+      overflow: hidden;
+    }
+  
+    #menuButton {
+      display: block;
+      margin: 20px auto;
+      padding: 10px 20px;
+      cursor: pointer;
+    }
+  
+    .side-panel {
+      position: fixed;
+      top: 0;
+      left: -300px;
+      width: 250px;
+      height: 100%;
+      background-color: #fff;
+      border-right: 1px solid #ddd;
+      box-shadow: 2px 0 5px rgba(0, 0, 0, 0.3);
+      transition: left 0.3s ease;
+      padding: 20px;
+      z-index: 1000;
+    }
+  
+    .side-panel.open {
+      left: 0;
+    }
   </style>
+  
 </head>
 <body>
-  <h1>Movies</h1>
-  <div class="movies-container" id="movies"></div>
-  
-  <div id="myModal" class="modal">
-    <div class="modal-content">
-      <span class="close">&times;</span>
-      <iframe id="videoFrame" src="" allowfullscreen></iframe>
+  <body>
+    <h1>Movies</h1>
+    <button id="menuButton">Меню</button>
+    <div class="side-panel" id="sidePanel">
+      <h2>Фильтры и настройки</h2>
+      <div class="filter-container">
+        <select id="filterSelect">
+          <option value="all">Все фильмы</option>
+          <option value="new">Новые релизы</option>
+          <option value="high-rated">Высокий рейтинг</option>
+        </select>
+        <button id="filterButton">Filter</button>
+      </div>
     </div>
-  </div>
+  
+    <div class="movies-container" id="movies"></div>
+    
+    <div id="myModal" class="modal">
+      <div class="modal-content">
+        <span class="close">&times;</span>
+        <iframe id="videoFrame" src="" allowfullscreen></iframe>
+      </div>
+    </div>
+  
+    <div class="pagination" id="pagination" style="display: none;"></div>
+  </body>
+  
 
   <script>
     class MovieApp {
@@ -99,27 +159,62 @@
         this.moviesContainer = document.getElementById('movies');
         this.modal = document.getElementById('myModal');
         this.videoFrame = document.getElementById('videoFrame');
+        this.menuButton = document.getElementById('menuButton');
+        this.sidePanel = document.getElementById('sidePanel');
         this.closeButton = document.querySelector('.close');
         this.closeButton.onclick = () => this.closeModal();
+        this.menuButton.onclick = () => this.toggleSidePanel();
         window.onclick = (event) => {
           if (event.target === this.modal) {
             this.closeModal();
           }
         };
-        this.fetchMovies();
+        this.currentPage = 1;
+        this.totalPages = 0;
+        this.moviesLoaded = 0;
+        this.isLoading = false;
+        this.fetchMovies(this.currentPage);
+        window.onscroll = () => this.handleScroll();
+
+        document.getElementById('filterButton').onclick = () => this.filterMovies();
       }
 
-      async fetchMovies() {
+      async fetchMovies(page, filter = 'all') {
+        if (this.isLoading || this.moviesLoaded >= 50) return;
+
+        this.isLoading = true; 
+        let endpoint = `https://api.themoviedb.org/3/movie/popular?api_key=${this.apiKey}&page=${page}`;
+        
+        if (filter === 'new') {
+          const today = new Date();
+          const lastMonth = new Date(today.setMonth(today.getMonth() - 1)).toISOString().split('T')[0];
+          endpoint = `https://api.themoviedb.org/3/discover/movie?api_key=${this.apiKey}&sort_by=release_date.desc&primary_release_date.gte=${lastMonth}&page=${page}`;
+        } else if (filter === 'high-rated') {
+          endpoint = `https://api.themoviedb.org/3/discover/movie?api_key=${this.apiKey}&sort_by=vote_average.desc&page=${page}`;
+        }
+
         try {
-          const response = await fetch(`https://api.themoviedb.org/3/movie/popular?api_key=${this.apiKey}`);
+          const response = await fetch(endpoint);
           const data = await response.json();
           const movies = data.results;
+          this.totalPages = data.total_pages;
 
           for (const movie of movies) {
-            await this.createMovieElement(movie);
+            if (this.moviesLoaded < 50) {
+              await this.createMovieElement(movie);
+              this.moviesLoaded++;
+            } else {
+              break;
+            }
+          }
+
+          if (this.moviesLoaded >= 50) {
+            this.showPagination();
           }
         } catch (error) {
           console.error('Error fetching movies:', error);
+        } finally {
+          this.isLoading = false;
         }
       }
 
@@ -130,7 +225,7 @@
           <img src="https://image.tmdb.org/t/p/w500${movie.poster_path}" alt="${movie.title}">
           <h3>${movie.title}</h3>
           <p><strong>Rating:</strong> ${movie.vote_average}</p>
-          <p>${movie.overview}</p>
+          <p class="cut-text">${movie.overview}</p>
         `;
 
         const trailerResponse = await fetch(`https://api.themoviedb.org/3/movie/${movie.id}/videos?api_key=${this.apiKey}`);
@@ -148,6 +243,10 @@
         this.moviesContainer.appendChild(movieElement);
       }
 
+      toggleSidePanel() {
+      this.sidePanel.classList.toggle('open');
+    }
+
       openModal(trailerKey) {
         const videoUrl = `https://www.youtube.com/embed/${trailerKey}`;
         this.videoFrame.src = videoUrl;
@@ -157,6 +256,50 @@
       closeModal() {
         this.modal.style.display = "none";
         this.videoFrame.src = "";
+      }
+
+      handleScroll() {
+        const nearBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 100;
+        if (nearBottom && this.moviesLoaded < 50 && !this.isLoading) {
+          this.currentPage++;
+          if (this.currentPage <= this.totalPages) {
+            this.fetchMovies(this.currentPage);
+          }
+        }
+      }
+
+      showPagination() {
+        const paginationDiv = document.getElementById('pagination');
+        paginationDiv.innerHTML = '';
+
+        const previousButton = document.createElement('button');
+        previousButton.innerText = 'Назад';
+        previousButton.disabled = this.currentPage === 1;
+        previousButton.onclick = () => this.changePage(this.currentPage - 1);
+        paginationDiv.appendChild(previousButton);
+
+        const nextButton = document.createElement('button');
+        nextButton.innerText = 'Дальше';
+        nextButton.disabled = this.currentPage >= this.totalPages;
+        nextButton.onclick = () => this.changePage(this.currentPage + 1);
+        paginationDiv.appendChild(nextButton);
+
+        paginationDiv.style.display = 'flex';
+      }
+
+      changePage(page) {
+        this.currentPage = page;
+        this.moviesContainer.innerHTML = '';
+        this.moviesLoaded = 0;
+        this.fetchMovies(this.currentPage);
+      }
+
+      filterMovies() {
+        const filterValue = document.getElementById('filterSelect').value;
+        this.currentPage = 1;
+        this.moviesContainer.innerHTML = '';
+        this.moviesLoaded = 0;
+        this.fetchMovies(this.currentPage, filterValue);
       }
     }
 
